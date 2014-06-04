@@ -8,8 +8,8 @@ import java.util.Map;
 
 import org.junit.Test;
 
-import com.sodiumcow.password.PasswordRules.CharacterType;
-import com.sodiumcow.password.PasswordRules.PasswordConstraint;
+import com.sodiumcow.password.CharacterType;
+import com.sodiumcow.password.PasswordConstraint;
 
 public class PasswordRulesTest {
 

@@ -60,6 +60,7 @@ public enum PasswordConstraint {
             return counts.get(CharacterType.SPECIAL)>=constraints.get(this);
         }
     },
+    AGE_CONSTRAINT (Type.MAX, "age"),
     REUSE_CONSTRAINT (Type.MIN, "repeat") {
         @Override
         public boolean validate(Map<PasswordConstraint,Integer> constraints, String password, Map<CharacterType,Integer>counts, String user, PasswordMatcher matcher) {
@@ -71,16 +72,10 @@ public enum PasswordConstraint {
             return result!=Result.MATCH;
         }
     },
-    AGE_CONSTRAINT (Type.MAX, "age") {
-        @Override
-        public boolean validate(Map<PasswordConstraint,Integer> constraints, String password, Map<CharacterType,Integer>counts, String user, PasswordMatcher matcher) {
-            return true;  // AGE_CONSTRAINT does not apply in the validation context
-        }
-    },
     USERSUBSTRING_CONSTRAINT (Type.PROHIBIT, "user") {
         @Override
         public boolean validate(Map<PasswordConstraint,Integer> constraints, String password, Map<CharacterType,Integer>counts, String user, PasswordMatcher matcher) {
-            return !enabled(constraints.get(this)) ||
+            return !enabled(constraints) ||
                    password.toLowerCase().indexOf(user.toLowerCase()) < 0;
         }
     };
@@ -100,11 +95,13 @@ public enum PasswordConstraint {
         this.id    = id;
     }
 
-    public abstract boolean validate(Map<PasswordConstraint,Integer> constraints,
-                                     String                          password,
-                                     Map<CharacterType,Integer>      counts,
-                                     String                          user,
-                                     PasswordMatcher                 matcher);
+    public boolean validate(Map<PasswordConstraint,Integer> constraints,
+                            String                          password,
+                            Map<CharacterType,Integer>      counts,
+                            String                          user,
+                            PasswordMatcher                 matcher) {
+        return true; // @Override this if there is something to check
+    }
 
     private static final HashMap<String,PasswordConstraint> index = new HashMap<String,PasswordConstraint>();
     static {
@@ -127,22 +124,40 @@ public enum PasswordConstraint {
         }
     }
 
-    public boolean enabled(int value) {
-        return value != getDefault();
+    public boolean enabled(Integer value) {
+        return value!=null && value!=getDefault();
     }
 
-    public StringBuffer append(StringBuffer sb, int value) {
-        if (enabled(value)) {
-            switch (type) {
-            case MIN:      sb.append(id).append(">=").append(value); break;
-            case MAX:      sb.append(id).append("<=").append(value); break;
-            case REQUIRE:  sb.append(id);                            break;
-            case PROHIBIT: sb.append('!').append(id);                break;
+    public boolean enabled(Map<PasswordConstraint,Integer> constraints) {
+        return enabled(constraints.get(this));
+    }
+
+    public static String format(EnumMap<PasswordConstraint,Integer>constraints) {
+        StringBuilder sb = new StringBuilder();
+        for (PasswordConstraint c : PasswordConstraint.values()) {
+            if (c.enabled(constraints)) {
+                switch (c.type) {
+                case MIN:      sb.append(c.id).append(">=").append(constraints.get(c)); break;
+                case MAX:      sb.append(c.id).append("<=").append(constraints.get(c)); break;
+                case REQUIRE:  sb.append(c.id);                                         break;
+                case PROHIBIT: sb.append('!').append(c.id);                             break;
+                }
+                sb.append(' ');
             }
         }
-        return sb;
+        if (sb.length()>0) sb.setLength(sb.length()-1); // remove extra trailing ' '
+        return sb.toString();
     }
 
+    /**
+     * A clause in the specification is:
+     *    [!]word[op number]
+     * where op is <= or >=.  Capture groups set up for
+     *    1:! or nothing
+     *    2:the word
+     *    3:the first character of op, or nothing
+     *    4:the number, or nothing
+     */
     private static final Pattern CLAUSE =
         Pattern.compile("(?i)\\s*(!)?\\s*(\\w+)\\s*(?:([><])=\\s*(\\d+)\\s*)?");
     public static EnumMap<PasswordConstraint,Integer> parse (String spec) {
@@ -158,7 +173,7 @@ public enum PasswordConstraint {
                 char               ineq       = limited ? m.group(3).charAt(0) : 'x';
                 int                limit      = limited ? Integer.valueOf(m.group(4)) : -1;
                 if (constraint==null) {
-                    err = "recognized token";
+                    err = "unrecognized token";
                 } else {
                     switch(constraint.type) {
                     case MIN:
@@ -189,7 +204,7 @@ public enum PasswordConstraint {
                 }
                 i = m.end();
             }
-            if (i<spec.length()) {
+            if (i<spec.length() || err!=null) {
                 // we didn't make it cleanly to the end
                 if (err==null) err="parsing error";
                 throw new IllegalArgumentException(err+": "+spec.substring(0,i)+"-->"+spec.substring(i));
